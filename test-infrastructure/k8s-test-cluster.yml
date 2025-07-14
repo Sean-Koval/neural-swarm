@@ -1,0 +1,685 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: neuroplex-test
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: neuroplex-test-config
+  namespace: neuroplex-test
+data:
+  redis.conf: |
+    port 6379
+    cluster-enabled yes
+    cluster-config-file nodes.conf
+    cluster-node-timeout 5000
+    appendonly yes
+  
+  hazelcast.xml: |
+    <?xml version="1.0" encoding="UTF-8"?>
+    <hazelcast xmlns="http://www.hazelcast.com/schema/config">
+      <cluster-name>neuroplex-test-cluster</cluster-name>
+      <network>
+        <port auto-increment="true" port-count="100">5701</port>
+        <join>
+          <multicast enabled="false"/>
+          <kubernetes enabled="true">
+            <service-name>hazelcast-service</service-name>
+            <namespace>neuroplex-test</namespace>
+          </kubernetes>
+        </join>
+      </network>
+      <map name="default">
+        <backup-count>2</backup-count>
+        <async-backup-count>1</async-backup-count>
+        <time-to-live-seconds>3600</time-to-live-seconds>
+      </map>
+    </hazelcast>
+  
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+    scrape_configs:
+      - job_name: 'neuroplex-nodes'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - neuroplex-test
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            action: keep
+            regex: neuroplex-node
+          - source_labels: [__meta_kubernetes_pod_ip]
+            target_label: __address__
+            replacement: ${1}:8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-cluster
+  namespace: neuroplex-test
+spec:
+  clusterIP: None
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis-cluster
+  namespace: neuroplex-test
+spec:
+  serviceName: redis-cluster
+  replicas: 3
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        command:
+          - redis-server
+          - /etc/redis/redis.conf
+        ports:
+        - containerPort: 6379
+        volumeMounts:
+        - name: redis-config
+          mountPath: /etc/redis
+        - name: redis-data
+          mountPath: /data
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+      volumes:
+      - name: redis-config
+        configMap:
+          name: neuroplex-test-config
+          items:
+          - key: redis.conf
+            path: redis.conf
+  volumeClaimTemplates:
+  - metadata:
+      name: redis-data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-service
+  namespace: neuroplex-test
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: neuroplex-test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:15-alpine
+        env:
+        - name: POSTGRES_DB
+          value: neuroplex_test
+        - name: POSTGRES_USER
+          value: neuroplex
+        - name: POSTGRES_PASSWORD
+          value: test_password
+        ports:
+        - containerPort: 5432
+        volumeMounts:
+        - name: postgres-data
+          mountPath: /var/lib/postgresql/data
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+      volumes:
+      - name: postgres-data
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hazelcast-service
+  namespace: neuroplex-test
+spec:
+  clusterIP: None
+  selector:
+    app: hazelcast
+  ports:
+    - port: 5701
+      targetPort: 5701
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: hazelcast
+  namespace: neuroplex-test
+spec:
+  serviceName: hazelcast-service
+  replicas: 3
+  selector:
+    matchLabels:
+      app: hazelcast
+  template:
+    metadata:
+      labels:
+        app: hazelcast
+    spec:
+      containers:
+      - name: hazelcast
+        image: hazelcast/hazelcast:5.3
+        env:
+        - name: JAVA_OPTS
+          value: "-Dhazelcast.config=/opt/hazelcast/config/hazelcast.xml"
+        ports:
+        - containerPort: 5701
+        volumeMounts:
+        - name: hazelcast-config
+          mountPath: /opt/hazelcast/config
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+      volumes:
+      - name: hazelcast-config
+        configMap:
+          name: neuroplex-test-config
+          items:
+          - key: hazelcast.xml
+            path: hazelcast.xml
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: etcd-service
+  namespace: neuroplex-test
+spec:
+  selector:
+    app: etcd
+  ports:
+    - port: 2379
+      targetPort: 2379
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: etcd
+  namespace: neuroplex-test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: etcd
+  template:
+    metadata:
+      labels:
+        app: etcd
+    spec:
+      containers:
+      - name: etcd
+        image: quay.io/coreos/etcd:v3.5.0
+        command:
+          - etcd
+          - --name=etcd-test
+          - --data-dir=/etcd-data
+          - --listen-client-urls=http://0.0.0.0:2379
+          - --advertise-client-urls=http://etcd-service:2379
+          - --listen-peer-urls=http://0.0.0.0:2380
+          - --initial-advertise-peer-urls=http://etcd-service:2380
+          - --initial-cluster=etcd-test=http://etcd-service:2380
+          - --initial-cluster-token=etcd-cluster-test
+          - --initial-cluster-state=new
+        ports:
+        - containerPort: 2379
+        - containerPort: 2380
+        volumeMounts:
+        - name: etcd-data
+          mountPath: /etcd-data
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+      volumes:
+      - name: etcd-data
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-service
+  namespace: neuroplex-test
+spec:
+  selector:
+    app: prometheus
+  ports:
+    - port: 9090
+      targetPort: 9090
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: neuroplex-test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      containers:
+      - name: prometheus
+        image: prom/prometheus:latest
+        args:
+          - --config.file=/etc/prometheus/prometheus.yml
+          - --storage.tsdb.path=/prometheus
+          - --web.console.libraries=/etc/prometheus/console_libraries
+          - --web.console.templates=/etc/prometheus/consoles
+          - --storage.tsdb.retention.time=200h
+          - --web.enable-lifecycle
+        ports:
+        - containerPort: 9090
+        volumeMounts:
+        - name: prometheus-config
+          mountPath: /etc/prometheus
+        - name: prometheus-data
+          mountPath: /prometheus
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+      volumes:
+      - name: prometheus-config
+        configMap:
+          name: neuroplex-test-config
+          items:
+          - key: prometheus.yml
+            path: prometheus.yml
+      - name: prometheus-data
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana-service
+  namespace: neuroplex-test
+spec:
+  selector:
+    app: grafana
+  ports:
+    - port: 3000
+      targetPort: 3000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: neuroplex-test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      containers:
+      - name: grafana
+        image: grafana/grafana:latest
+        env:
+        - name: GF_SECURITY_ADMIN_PASSWORD
+          value: admin
+        ports:
+        - containerPort: 3000
+        volumeMounts:
+        - name: grafana-data
+          mountPath: /var/lib/grafana
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+      volumes:
+      - name: grafana-data
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger-service
+  namespace: neuroplex-test
+spec:
+  selector:
+    app: jaeger
+  ports:
+    - port: 16686
+      targetPort: 16686
+    - port: 14268
+      targetPort: 14268
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jaeger
+  namespace: neuroplex-test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jaeger
+  template:
+    metadata:
+      labels:
+        app: jaeger
+    spec:
+      containers:
+      - name: jaeger
+        image: jaegertracing/all-in-one:latest
+        env:
+        - name: COLLECTOR_OTLP_ENABLED
+          value: "true"
+        ports:
+        - containerPort: 16686
+        - containerPort: 14268
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: neuroplex-node-service
+  namespace: neuroplex-test
+spec:
+  clusterIP: None
+  selector:
+    app: neuroplex-node
+  ports:
+    - port: 4433
+      targetPort: 4433
+    - port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: neuroplex-node
+  namespace: neuroplex-test
+spec:
+  serviceName: neuroplex-node-service
+  replicas: 3
+  selector:
+    matchLabels:
+      app: neuroplex-node
+  template:
+    metadata:
+      labels:
+        app: neuroplex-node
+    spec:
+      containers:
+      - name: neuroplex-node
+        image: neuroplex-node:latest
+        env:
+        - name: NODE_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: CLUSTER_NODES
+          value: "neuroplex-node-0.neuroplex-node-service:4433,neuroplex-node-1.neuroplex-node-service:4433,neuroplex-node-2.neuroplex-node-service:4433"
+        - name: REDIS_URLS
+          value: "redis-cluster-0.redis-cluster:6379,redis-cluster-1.redis-cluster:6379,redis-cluster-2.redis-cluster:6379"
+        - name: POSTGRES_URL
+          value: "postgres://neuroplex:test_password@postgres-service:5432/neuroplex_test"
+        - name: HAZELCAST_URLS
+          value: "hazelcast-0.hazelcast-service:5701,hazelcast-1.hazelcast-service:5701,hazelcast-2.hazelcast-service:5701"
+        - name: ETCD_URL
+          value: "http://etcd-service:2379"
+        - name: RUST_LOG
+          value: debug
+        - name: RUST_BACKTRACE
+          value: "1"
+        - name: NEUROPLEX_TEST_MODE
+          value: "true"
+        ports:
+        - containerPort: 4433
+        - containerPort: 8080
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: load-tester-service
+  namespace: neuroplex-test
+spec:
+  selector:
+    app: load-tester
+  ports:
+    - port: 8080
+      targetPort: 8080
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: load-tester
+  namespace: neuroplex-test
+spec:
+  template:
+    metadata:
+      labels:
+        app: load-tester
+    spec:
+      containers:
+      - name: load-tester
+        image: neuroplex-load-tester:latest
+        env:
+        - name: TARGET_NODES
+          value: "neuroplex-node-0.neuroplex-node-service:4433,neuroplex-node-1.neuroplex-node-service:4433,neuroplex-node-2.neuroplex-node-service:4433"
+        - name: LOAD_PATTERN
+          value: "gradual"
+        - name: MAX_CONCURRENT_REQUESTS
+          value: "1000"
+        - name: TEST_DURATION
+          value: "300"
+        - name: RUST_LOG
+          value: info
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+      restartPolicy: Never
+  backoffLimit: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chaos-monkey-service
+  namespace: neuroplex-test
+spec:
+  selector:
+    app: chaos-monkey
+  ports:
+    - port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chaos-monkey
+  namespace: neuroplex-test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: chaos-monkey
+  template:
+    metadata:
+      labels:
+        app: chaos-monkey
+    spec:
+      containers:
+      - name: chaos-monkey
+        image: neuroplex-chaos:latest
+        env:
+        - name: TARGET_SERVICES
+          value: "neuroplex-node,redis-cluster,hazelcast"
+        - name: CHAOS_LEVEL
+          value: "moderate"
+        - name: FAILURE_RATE
+          value: "0.1"
+        - name: RUST_LOG
+          value: info
+        - name: KUBERNETES_NAMESPACE
+          value: neuroplex-test
+        ports:
+        - containerPort: 8080
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1000
+      serviceAccountName: chaos-monkey-sa
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: chaos-monkey-sa
+  namespace: neuroplex-test
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: chaos-monkey-role
+  namespace: neuroplex-test
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "delete"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "statefulsets"]
+  verbs: ["get", "list", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: chaos-monkey-rolebinding
+  namespace: neuroplex-test
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: chaos-monkey-role
+subjects:
+- kind: ServiceAccount
+  name: chaos-monkey-sa
+  namespace: neuroplex-test
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: neuroplex-test-network-policy
+  namespace: neuroplex-test
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: neuroplex-test
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: neuroplex-test
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 53
+    - protocol: UDP
+      port: 53

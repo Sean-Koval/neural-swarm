@@ -1,0 +1,248 @@
+version: '3.8'
+
+services:
+  # Redis cluster for distributed caching
+  redis-node-1:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --port 6379 --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000 --appendonly yes
+    volumes:
+      - redis1-data:/data
+    networks:
+      - neuroplex-test
+
+  redis-node-2:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+    command: redis-server --port 6379 --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000 --appendonly yes
+    volumes:
+      - redis2-data:/data
+    networks:
+      - neuroplex-test
+
+  redis-node-3:
+    image: redis:7-alpine
+    ports:
+      - "6381:6379"
+    command: redis-server --port 6379 --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000 --appendonly yes
+    volumes:
+      - redis3-data:/data
+    networks:
+      - neuroplex-test
+
+  # PostgreSQL for persistent storage
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: neuroplex_test
+      POSTGRES_USER: neuroplex
+      POSTGRES_PASSWORD: test_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - neuroplex-test
+
+  # Hazelcast for distributed memory
+  hazelcast:
+    image: hazelcast/hazelcast:5.3
+    environment:
+      JAVA_OPTS: "-Dhazelcast.config=/opt/hazelcast/config/hazelcast.xml"
+    ports:
+      - "5701:5701"
+    volumes:
+      - ./hazelcast-config.xml:/opt/hazelcast/config/hazelcast.xml
+    networks:
+      - neuroplex-test
+
+  # ETCD for distributed coordination
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.0
+    ports:
+      - "2379:2379"
+      - "2380:2380"
+    command:
+      - etcd
+      - --name=etcd-test
+      - --data-dir=/etcd-data
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://etcd:2379
+      - --listen-peer-urls=http://0.0.0.0:2380
+      - --initial-advertise-peer-urls=http://etcd:2380
+      - --initial-cluster=etcd-test=http://etcd:2380
+      - --initial-cluster-token=etcd-cluster-test
+      - --initial-cluster-state=new
+    volumes:
+      - etcd-data:/etcd-data
+    networks:
+      - neuroplex-test
+
+  # Prometheus for metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - neuroplex-test
+
+  # Grafana for visualization
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    networks:
+      - neuroplex-test
+
+  # Jaeger for distributed tracing
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    ports:
+      - "16686:16686"
+      - "14268:14268"
+    environment:
+      COLLECTOR_OTLP_ENABLED: true
+    networks:
+      - neuroplex-test
+
+  # Test coordinator service
+  test-coordinator:
+    build:
+      context: ..
+      dockerfile: test-infrastructure/Dockerfile.test-coordinator
+    environment:
+      RUST_LOG: debug
+      NEUROPLEX_TEST_MODE: true
+      REDIS_URLS: redis-node-1:6379,redis-node-2:6379,redis-node-3:6379
+      POSTGRES_URL: postgres://neuroplex:test_password@postgres:5432/neuroplex_test
+      HAZELCAST_URL: hazelcast:5701
+      ETCD_URL: http://etcd:2379
+      PROMETHEUS_URL: http://prometheus:9090
+      JAEGER_URL: http://jaeger:14268
+    depends_on:
+      - redis-node-1
+      - redis-node-2
+      - redis-node-3
+      - postgres
+      - hazelcast
+      - etcd
+      - prometheus
+      - jaeger
+    networks:
+      - neuroplex-test
+
+  # Neuroplex test nodes
+  neuroplex-node-1:
+    build:
+      context: ..
+      dockerfile: test-infrastructure/Dockerfile.neuroplex-node
+    environment:
+      NODE_ID: node-1
+      CLUSTER_NODES: neuroplex-node-1:4433,neuroplex-node-2:4433,neuroplex-node-3:4433
+      RUST_LOG: debug
+    ports:
+      - "4433:4433"
+    depends_on:
+      - test-coordinator
+    networks:
+      - neuroplex-test
+
+  neuroplex-node-2:
+    build:
+      context: ..
+      dockerfile: test-infrastructure/Dockerfile.neuroplex-node
+    environment:
+      NODE_ID: node-2
+      CLUSTER_NODES: neuroplex-node-1:4433,neuroplex-node-2:4433,neuroplex-node-3:4433
+      RUST_LOG: debug
+    ports:
+      - "4434:4433"
+    depends_on:
+      - test-coordinator
+    networks:
+      - neuroplex-test
+
+  neuroplex-node-3:
+    build:
+      context: ..
+      dockerfile: test-infrastructure/Dockerfile.neuroplex-node
+    environment:
+      NODE_ID: node-3
+      CLUSTER_NODES: neuroplex-node-1:4433,neuroplex-node-2:4433,neuroplex-node-3:4433
+      RUST_LOG: debug
+    ports:
+      - "4435:4433"
+    depends_on:
+      - test-coordinator
+    networks:
+      - neuroplex-test
+
+  # Load testing service
+  load-tester:
+    build:
+      context: ..
+      dockerfile: test-infrastructure/Dockerfile.load-tester
+    environment:
+      TARGET_NODES: neuroplex-node-1:4433,neuroplex-node-2:4433,neuroplex-node-3:4433
+      LOAD_PATTERN: gradual
+      MAX_CONCURRENT_REQUESTS: 1000
+      TEST_DURATION: 300
+    depends_on:
+      - neuroplex-node-1
+      - neuroplex-node-2
+      - neuroplex-node-3
+    networks:
+      - neuroplex-test
+
+  # Chaos engineering service
+  chaos-monkey:
+    build:
+      context: ..
+      dockerfile: test-infrastructure/Dockerfile.chaos-monkey
+    environment:
+      TARGET_SERVICES: neuroplex-node-1,neuroplex-node-2,neuroplex-node-3,redis-node-1,redis-node-2,redis-node-3
+      CHAOS_LEVEL: moderate
+      FAILURE_RATE: 0.1
+    depends_on:
+      - neuroplex-node-1
+      - neuroplex-node-2
+      - neuroplex-node-3
+    networks:
+      - neuroplex-test
+    privileged: true
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+volumes:
+  redis1-data:
+  redis2-data:
+  redis3-data:
+  postgres-data:
+  etcd-data:
+  prometheus-data:
+  grafana-data:
+
+networks:
+  neuroplex-test:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

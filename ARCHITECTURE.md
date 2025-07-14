@@ -4,6 +4,8 @@
 
 This document defines the comprehensive architecture for a Rust-based neural swarm system with collaborative agents. The architecture emphasizes performance, security, and scalability while maintaining clean, modular design principles.
 
+> **Note**: This is the authoritative architecture documentation for the Neural Swarm project. All other architecture files reference this as the single source of truth.
+
 ## 🎯 Neural Task Decomposition System Architecture
 
 ### System Overview

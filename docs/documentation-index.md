@@ -1,8 +1,8 @@
-# FANN-Rust-Core Documentation Index
+# Neural Swarm Documentation Index
 
 ## 📚 Complete Documentation Suite
 
-This comprehensive documentation suite provides everything you need to understand, use, and contribute to FANN-Rust-Core, a high-performance neural network library with advanced swarm coordination capabilities.
+This comprehensive documentation suite provides everything you need to understand, use, and contribute to Neural Swarm, a high-performance collaborative AI agent framework with neural network-driven intelligence.
 
 ## 🚀 Getting Started
 
@@ -22,14 +22,14 @@ This comprehensive documentation suite provides everything you need to understan
 ### Core APIs
 - **[Rust API Documentation](rust-api.md)** - Complete Rust API reference with examples
 - **[Python API Documentation](python-api.md)** - Python bindings and usage patterns
-- **[C API Documentation](c-api.md)** - C compatibility layer for existing FANN code
+- **[Swarm Integration Guide](swarm-integration.md)** - Multi-agent coordination patterns
 
 ### Language-Specific Guides
 | Language | Documentation | Examples | Package |
 |----------|---------------|----------|---------|
-| **Rust** | [API Docs](rust-api.md) | [Examples](../examples/rust/) | `fann-rust-core` |
-| **Python** | [API Docs](python-api.md) | [Examples](../examples/python/) | `fann-rust-core` |
-| **C/C++** | [API Docs](c-api.md) | [Examples](../examples/c/) | Header files |
+| **Rust** | [API Docs](rust-api.md) | [Examples](../examples/rust/) | `neural-swarm` |
+| **Python** | [API Docs](python-api.md) | [Examples](../examples/python/) | `neural-swarm` |
+| **FANN Core** | [FANN Docs](../fann-rust-core/README.md) | [Examples](../fann-rust-core/examples/) | `fann-rust-core` |
 
 ## 🔧 Development Guides
 
@@ -64,15 +64,15 @@ This comprehensive documentation suite provides everything you need to understan
 ## 🏗️ Architecture Documentation
 
 ### System Architecture
-- **[Architecture Overview](../ARCHITECTURE.md)** - High-level system design
-- **[Core Components](architecture/core-components.md)** - Neural engine and optimization
-- **[Swarm Coordination](architecture/swarm-coordination.md)** - Multi-agent architecture
-- **[Memory Management](architecture/memory-management.md)** - Efficient memory usage
+- **[Architecture Overview](../ARCHITECTURE.md)** - High-level system design and specifications
+- **[Neural Communication](../neural-comm/README.md)** - Inter-agent communication protocols
+- **[Swarm Coordination](swarm-integration.md)** - Multi-agent coordination patterns
+- **[Security Model](../ARCHITECTURE.md#security-model)** - Security architecture and capabilities
 
 ### Integration Patterns
-- **[MCP Integration](integration/mcp-integration.md)** - Model Context Protocol support
-- **[Blackboard Coordination](integration/blackboard.md)** - Shared memory patterns
-- **[Tool Ecosystem](integration/tools.md)** - External tool integration
+- **[MCP Integration](../ARCHITECTURE.md#mcp-integration--hook-system)** - Model Context Protocol support
+- **[Blackboard Coordination](../ARCHITECTURE.md#communication-protocols)** - Shared memory patterns
+- **[Tool Ecosystem](../ARCHITECTURE.md#integration-patterns)** - External tool integration
 
 ## ⚡ Performance and Optimization
 
@@ -83,10 +83,10 @@ This comprehensive documentation suite provides everything you need to understan
 - **[Quantization](performance/quantization.md)** - Model compression techniques
 
 ### Benchmarks and Metrics
-- **[Performance Benchmarks](benchmarks/performance.md)** - Speed and efficiency metrics
-- **[Memory Benchmarks](benchmarks/memory.md)** - Memory usage analysis
-- **[Energy Benchmarks](benchmarks/energy.md)** - Power consumption metrics
-- **[Comparison Studies](benchmarks/comparison.md)** - vs other libraries
+- **[Performance Benchmarks](BENCHMARKING_GUIDE.md)** - Speed and efficiency metrics
+- **[FANN Benchmarks](../fann-rust-core/README.md#performance-benchmarking)** - Neural network performance
+- **[System Benchmarks](../ARCHITECTURE.md#performance-optimizations)** - System-level performance
+- **[Comparison Studies](../fann-rust-core/README.md#performance-comparison)** - vs other libraries
 
 ## 🌐 Deployment Guides
 

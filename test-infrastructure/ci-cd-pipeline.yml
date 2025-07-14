@@ -1,0 +1,606 @@
+# CI/CD Pipeline for Neuroplex Distributed Memory System
+# This GitHub Actions workflow provides comprehensive testing and deployment
+
+name: Neuroplex CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    - cron: '0 2 * * *' # Daily at 2 AM UTC
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  # Code quality and security checks
+  code-quality:
+    name: Code Quality & Security
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          components: rustfmt, clippy
+          override: true
+      
+      - name: Cache dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Format check
+        run: cargo fmt --all -- --check
+      
+      - name: Lint check
+        run: cargo clippy --all-targets --all-features -- -D warnings
+      
+      - name: Security audit
+        run: |
+          cargo install cargo-audit
+          cargo audit
+      
+      - name: License check
+        run: |
+          cargo install cargo-license
+          cargo license --json > licenses.json
+          # Check for forbidden licenses
+          if grep -q "GPL" licenses.json; then
+            echo "GPL licenses found!"
+            exit 1
+          fi
+
+  # Unit tests
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rust-version: [stable, beta, nightly]
+    continue-on-error: ${{ matrix.rust-version == 'nightly' }}
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust ${{ matrix.rust-version }}
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ matrix.rust-version }}
+          profile: minimal
+          override: true
+      
+      - name: Cache dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ matrix.rust-version }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Run unit tests
+        run: |
+          chmod +x test-infrastructure/automated_test_runner.sh
+          ./test-infrastructure/automated_test_runner.sh --unit-only --ci
+      
+      - name: Upload test results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: unit-test-results-${{ matrix.rust-version }}
+          path: |
+            test-results/
+            logs/
+
+  # Integration tests
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: neuroplex_test
+          POSTGRES_USER: neuroplex
+          POSTGRES_PASSWORD: test_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+      
+      - name: Cache dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-integration-cargo-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Setup test environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client redis-tools
+          
+          # Wait for services to be ready
+          until pg_isready -h localhost -p 5432 -U neuroplex; do
+            echo "Waiting for PostgreSQL..."
+            sleep 2
+          done
+          
+          until redis-cli -h localhost -p 6379 ping | grep -q PONG; do
+            echo "Waiting for Redis..."
+            sleep 2
+          done
+      
+      - name: Run integration tests
+        run: |
+          chmod +x test-infrastructure/automated_test_runner.sh
+          ./test-infrastructure/automated_test_runner.sh --integration-only --ci
+        env:
+          REDIS_URL: redis://localhost:6379
+          POSTGRES_URL: postgres://neuroplex:test_password@localhost:5432/neuroplex_test
+      
+      - name: Upload test results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: integration-test-results
+          path: |
+            test-results/
+            logs/
+
+  # Performance benchmarks
+  performance-benchmarks:
+    name: Performance Benchmarks
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || contains(github.event.head_commit.message, '[benchmark]')
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+      
+      - name: Cache dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-benchmark-cargo-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Run performance benchmarks
+        run: |
+          chmod +x test-infrastructure/automated_test_runner.sh
+          ./test-infrastructure/automated_test_runner.sh --performance-only --ci
+      
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v3
+        with:
+          name: performance-benchmarks
+          path: |
+            benchmarks/
+            target/criterion/
+
+  # Chaos engineering tests
+  chaos-tests:
+    name: Chaos Engineering Tests
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || contains(github.event.head_commit.message, '[chaos]')
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+      
+      - name: Cache dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-chaos-cargo-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Setup Docker
+        uses: docker/setup-buildx-action@v2
+      
+      - name: Run chaos engineering tests
+        run: |
+          chmod +x test-infrastructure/automated_test_runner.sh
+          ./test-infrastructure/automated_test_runner.sh --chaos-only --docker --ci
+      
+      - name: Upload chaos test results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: chaos-test-results
+          path: |
+            test-results/
+            logs/
+
+  # Python FFI tests
+  python-ffi-tests:
+    name: Python FFI Tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.8', '3.9', '3.10', '3.11']
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+      
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+      
+      - name: Cache dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+            ~/.cache/pip
+          key: ${{ runner.os }}-python-${{ matrix.python-version }}-cargo-${{ hashFiles('**/Cargo.lock') }}-pip-${{ hashFiles('**/requirements*.txt') }}
+      
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-test.txt
+      
+      - name: Run Python FFI tests
+        run: |
+          chmod +x test-infrastructure/automated_test_runner.sh
+          ./test-infrastructure/automated_test_runner.sh --ffi-tests --ci
+      
+      - name: Upload Python test results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: python-ffi-test-results-${{ matrix.python-version }}
+          path: |
+            test-results/
+            logs/
+
+  # Memory leak tests
+  memory-leak-tests:
+    name: Memory Leak Tests
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || contains(github.event.head_commit.message, '[memory]')
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+      
+      - name: Cache dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-memory-cargo-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Install Valgrind
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y valgrind
+      
+      - name: Run memory leak tests
+        run: |
+          chmod +x test-infrastructure/automated_test_runner.sh
+          ./test-infrastructure/automated_test_runner.sh --memory-tests --ci
+      
+      - name: Upload memory test results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: memory-leak-test-results
+          path: |
+            test-results/
+            logs/
+
+  # Code coverage
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    needs: [unit-tests, integration-tests]
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+      
+      - name: Cache dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-coverage-cargo-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Install coverage tools
+        run: |
+          cargo install cargo-tarpaulin
+      
+      - name: Generate coverage report
+        run: |
+          chmod +x test-infrastructure/automated_test_runner.sh
+          ./test-infrastructure/automated_test_runner.sh --coverage --ci
+      
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage/cobertura.xml
+          flags: unittests
+          name: codecov-umbrella
+      
+      - name: Upload coverage results
+        uses: actions/upload-artifact@v3
+        with:
+          name: coverage-report
+          path: coverage/
+
+  # Docker builds
+  docker-builds:
+    name: Docker Builds
+    runs-on: ubuntu-latest
+    needs: [code-quality, unit-tests]
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      
+      - name: Login to Docker Hub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+      
+      - name: Build and push Docker images
+        run: |
+          make docker-build
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            make docker-push
+          fi
+      
+      - name: Run Docker tests
+        run: |
+          chmod +x test-infrastructure/automated_test_runner.sh
+          ./test-infrastructure/automated_test_runner.sh --docker --ci
+
+  # Kubernetes tests
+  kubernetes-tests:
+    name: Kubernetes Tests
+    runs-on: ubuntu-latest
+    needs: [docker-builds]
+    if: github.event_name == 'schedule' || contains(github.event.head_commit.message, '[k8s]')
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Kubernetes
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: neuroplex-test
+          config: test-infrastructure/kind-config.yaml
+      
+      - name: Run Kubernetes tests
+        run: |
+          chmod +x test-infrastructure/automated_test_runner.sh
+          ./test-infrastructure/automated_test_runner.sh --kubernetes --ci
+      
+      - name: Upload Kubernetes test results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: kubernetes-test-results
+          path: |
+            test-results/
+            logs/
+
+  # Security scanning
+  security-scan:
+    name: Security Scanning
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+      
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  # Documentation
+  documentation:
+    name: Documentation
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+      
+      - name: Cache dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-docs-cargo-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Generate documentation
+        run: |
+          cargo doc --all-features --no-deps
+      
+      - name: Deploy documentation
+        if: github.ref == 'refs/heads/main'
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./target/doc
+
+  # Release
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    needs: [code-quality, unit-tests, integration-tests, coverage, docker-builds]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+      
+      - name: Cache dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-release-cargo-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Install release tools
+        run: |
+          cargo install cargo-release
+      
+      - name: Create release
+        run: |
+          # This would be configured based on versioning strategy
+          # For now, it's a placeholder
+          echo "Release process would be executed here"
+      
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: release-artifacts
+          path: |
+            target/release/
+            docker-images/
+
+  # Cleanup
+  cleanup:
+    name: Cleanup
+    runs-on: ubuntu-latest
+    needs: [unit-tests, integration-tests, performance-benchmarks, chaos-tests, python-ffi-tests, memory-leak-tests, coverage, docker-builds, kubernetes-tests, security-scan, documentation, release]
+    if: always()
+    
+    steps:
+      - name: Clean up artifacts
+        run: |
+          echo "Cleaning up temporary artifacts..."
+          # This would clean up any temporary resources
+          # that were created during the pipeline execution
+
+  # Notification
+  notification:
+    name: Notification
+    runs-on: ubuntu-latest
+    needs: [cleanup]
+    if: always()
+    
+    steps:
+      - name: Send notification
+        uses: 8398a7/action-slack@v3
+        if: failure()
+        with:
+          status: ${{ job.status }}
+          text: 'Neuroplex CI/CD pipeline failed!'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      
+      - name: Send success notification
+        uses: 8398a7/action-slack@v3
+        if: success()
+        with:
+          status: ${{ job.status }}
+          text: 'Neuroplex CI/CD pipeline succeeded!'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
