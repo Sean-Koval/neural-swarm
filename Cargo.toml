@@ -1,0 +1,77 @@
+[package]
+name = "neuroplex"
+version = "0.1.0"
+edition = "2021"
+description = "Distributed memory system with CRDT and consensus protocols"
+authors = ["Neural Swarm <neural@swarm.dev>"]
+license = "MIT"
+repository = "https://github.com/neural-swarm/neuroplex"
+readme = "README.md"
+
+[dependencies]
+# Async runtime and futures
+tokio = { version = "1.0", features = ["full"] }
+tokio-util = "0.7"
+futures = "0.3"
+async-trait = "0.1"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+bincode = "1.3"
+
+# Networking
+tonic = "0.11"
+prost = "0.12"
+tower = "0.4"
+
+# Data structures
+dashmap = "5.5"
+crossbeam = "0.8"
+arc-swap = "1.6"
+parking_lot = "0.12"
+
+# Compression
+lz4 = "1.24"
+zstd = "0.13"
+
+# Crypto
+blake3 = "1.5"
+uuid = { version = "1.6", features = ["v4", "serde"] }
+
+# Metrics and monitoring
+metrics = "0.22"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+# Python FFI
+pyo3 = { version = "0.21", features = ["extension-module", "abi3-py38"] }
+pyo3-asyncio = "0.21"
+
+# Time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+[dev-dependencies]
+criterion = "0.5"
+proptest = "1.4"
+tempfile = "3.8"
+
+[build-dependencies]
+tonic-build = "0.11"
+prost-build = "0.12"
+
+[lib]
+name = "neuroplex"
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "neuroplex-node"
+path = "src/bin/node.rs"
+
+[features]
+default = ["python-ffi"]
+python-ffi = ["pyo3", "pyo3-asyncio"]

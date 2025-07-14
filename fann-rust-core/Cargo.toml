@@ -1,0 +1,80 @@
+[package]
+name = "fann-rust-core"
+version = "0.1.0"
+edition = "2021"
+authors = ["Neural Swarm Team"]
+description = "High-performance Fast Artificial Neural Network (FANN) implementation in Rust"
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/neural-swarm/fann-rust-core"
+repository = "https://github.com/neural-swarm/fann-rust-core"
+keywords = ["neural-networks", "machine-learning", "ai", "fann", "deep-learning"]
+categories = ["algorithms", "science"]
+readme = "README.md"
+
+[lib]
+name = "fann_rust_core"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["standard"]
+standard = ["serde", "rayon"]
+ffi = ["libc"]
+wasm = ["wasm-bindgen", "js-sys", "web-sys"]
+cuda = ["cudarc"]
+opencl = ["opencl3"]
+simd = ["packed_simd"]
+no-std = []
+
+[dependencies]
+# Core dependencies
+serde = { version = "1.0", features = ["derive"], optional = true }
+rayon = { version = "1.8", optional = true }
+thiserror = "1.0"
+num-traits = "0.2"
+nalgebra = { version = "0.32", features = ["rand"] }
+rand = "0.8"
+
+# FFI dependencies
+libc = { version = "0.2", optional = true }
+
+# WASM dependencies
+wasm-bindgen = { version = "0.2", optional = true }
+js-sys = { version = "0.3", optional = true }
+web-sys = { version = "0.3", optional = true }
+
+# GPU acceleration (optional)
+cudarc = { version = "0.9", optional = true }
+opencl3 = { version = "0.8", optional = true }
+
+# SIMD acceleration (optional)
+packed_simd = { version = "0.3", optional = true }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+proptest = "1.4"
+approx = "0.5"
+tempfile = "3.8"
+
+[[bench]]
+name = "neural_network_benchmarks"
+harness = false
+
+[[bench]]
+name = "training_benchmarks"
+harness = false
+
+[[bench]]
+name = "inference_benchmarks"
+harness = false
+
+[profile.release]
+opt-level = 3
+debug = false
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[profile.bench]
+opt-level = 3
+debug = true
+lto = true

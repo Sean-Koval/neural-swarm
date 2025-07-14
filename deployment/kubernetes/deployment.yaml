@@ -1,0 +1,175 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: neuroplex-coordinator
+  namespace: neural-swarm
+  labels:
+    app.kubernetes.io/name: neuroplex
+    app.kubernetes.io/component: coordinator
+    app.kubernetes.io/part-of: neural-swarm-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: neuroplex
+      app.kubernetes.io/component: coordinator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: neuroplex
+        app.kubernetes.io/component: coordinator
+        app.kubernetes.io/part-of: neural-swarm-system
+    spec:
+      containers:
+      - name: neuroplex-coordinator
+        image: neural-swarm/neuroplex:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+          name: coordinator
+          protocol: TCP
+        - containerPort: 8081
+          name: health
+          protocol: TCP
+        - containerPort: 9090
+          name: metrics
+          protocol: TCP
+        env:
+        - name: NEUROPLEX_NODE_TYPE
+          value: "coordinator"
+        - name: NEUROPLEX_CLUSTER_ID
+          value: "k8s-swarm-cluster"
+        - name: NEUROPLEX_CONFIG
+          value: "/etc/neuroplex/config.toml"
+        - name: RUST_LOG
+          value: "info"
+        - name: RUST_BACKTRACE
+          value: "1"
+        resources:
+          requests:
+            cpu: 500m
+            memory: 512Mi
+          limits:
+            cpu: 2000m
+            memory: 2Gi
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8081
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: config
+          mountPath: /etc/neuroplex
+          readOnly: true
+        - name: data
+          mountPath: /var/lib/neuroplex
+      volumes:
+      - name: config
+        configMap:
+          name: neuroplex-config
+      - name: data
+        emptyDir: {}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      terminationGracePeriodSeconds: 30
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: neuroplex-worker
+  namespace: neural-swarm
+  labels:
+    app.kubernetes.io/name: neuroplex
+    app.kubernetes.io/component: worker
+    app.kubernetes.io/part-of: neural-swarm-system
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: neuroplex
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: neuroplex
+        app.kubernetes.io/component: worker
+        app.kubernetes.io/part-of: neural-swarm-system
+    spec:
+      containers:
+      - name: neuroplex-worker
+        image: neural-swarm/neuroplex:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+          name: worker
+          protocol: TCP
+        - containerPort: 8081
+          name: health
+          protocol: TCP
+        env:
+        - name: NEUROPLEX_NODE_TYPE
+          value: "worker"
+        - name: NEUROPLEX_CLUSTER_ID
+          value: "k8s-swarm-cluster"
+        - name: NEUROPLEX_COORDINATOR
+          value: "neuroplex-coordinator-service:8080"
+        - name: NEUROPLEX_CONFIG
+          value: "/etc/neuroplex/config.toml"
+        - name: RUST_LOG
+          value: "info"
+        resources:
+          requests:
+            cpu: 250m
+            memory: 256Mi
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8081
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: config
+          mountPath: /etc/neuroplex
+          readOnly: true
+        - name: data
+          mountPath: /var/lib/neuroplex
+      volumes:
+      - name: config
+        configMap:
+          name: neuroplex-config
+      - name: data
+        emptyDir: {}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      terminationGracePeriodSeconds: 30

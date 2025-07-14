@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: neural-swarm
+  labels:
+    name: neural-swarm
+    app.kubernetes.io/name: neural-swarm
+    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/component: coordination
+    app.kubernetes.io/part-of: neural-swarm-system

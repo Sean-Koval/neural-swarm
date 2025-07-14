@@ -1,0 +1,158 @@
+# Docker Compose configuration for neural-swarm cluster
+version: '3.8'
+
+services:
+  # Coordinator node
+  neuroplex-coordinator:
+    build:
+      context: ../../
+      dockerfile: deployment/docker/Dockerfile
+    container_name: neuroplex-coordinator
+    hostname: coordinator
+    environment:
+      - NEUROPLEX_NODE_TYPE=coordinator
+      - NEUROPLEX_CLUSTER_ID=swarm-cluster-01
+      - NEUROPLEX_PEERS=worker-1:8080,worker-2:8080,worker-3:8080
+      - RUST_LOG=info
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+      - "8082:8082"
+    networks:
+      - neuroplex-network
+    volumes:
+      - coordinator-data:/var/lib/neuroplex
+      - ./config:/etc/neuroplex
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '1.0'
+          memory: 1G
+
+  # Worker nodes
+  neuroplex-worker-1:
+    build:
+      context: ../../
+      dockerfile: deployment/docker/Dockerfile
+    container_name: neuroplex-worker-1
+    hostname: worker-1
+    environment:
+      - NEUROPLEX_NODE_TYPE=worker
+      - NEUROPLEX_CLUSTER_ID=swarm-cluster-01
+      - NEUROPLEX_COORDINATOR=coordinator:8080
+      - RUST_LOG=info
+    depends_on:
+      - neuroplex-coordinator
+    networks:
+      - neuroplex-network
+    volumes:
+      - worker-1-data:/var/lib/neuroplex
+      - ./config:/etc/neuroplex
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 1.5G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  neuroplex-worker-2:
+    build:
+      context: ../../
+      dockerfile: deployment/docker/Dockerfile
+    container_name: neuroplex-worker-2
+    hostname: worker-2
+    environment:
+      - NEUROPLEX_NODE_TYPE=worker
+      - NEUROPLEX_CLUSTER_ID=swarm-cluster-01
+      - NEUROPLEX_COORDINATOR=coordinator:8080
+      - RUST_LOG=info
+    depends_on:
+      - neuroplex-coordinator
+    networks:
+      - neuroplex-network
+    volumes:
+      - worker-2-data:/var/lib/neuroplex
+      - ./config:/etc/neuroplex
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 1.5G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  neuroplex-worker-3:
+    build:
+      context: ../../
+      dockerfile: deployment/docker/Dockerfile
+    container_name: neuroplex-worker-3
+    hostname: worker-3
+    environment:
+      - NEUROPLEX_NODE_TYPE=worker
+      - NEUROPLEX_CLUSTER_ID=swarm-cluster-01
+      - NEUROPLEX_COORDINATOR=coordinator:8080
+      - RUST_LOG=info
+    depends_on:
+      - neuroplex-coordinator
+    networks:
+      - neuroplex-network
+    volumes:
+      - worker-3-data:/var/lib/neuroplex
+      - ./config:/etc/neuroplex
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 1.5G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # Monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: neuroplex-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    networks:
+      - neuroplex-network
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: neuroplex-grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana:/etc/grafana/provisioning
+    networks:
+      - neuroplex-network
+
+networks:
+  neuroplex-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  coordinator-data:
+  worker-1-data:
+  worker-2-data:
+  worker-3-data:
+  prometheus-data:
+  grafana-data:

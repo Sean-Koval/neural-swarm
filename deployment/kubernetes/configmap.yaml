@@ -1,0 +1,77 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: neuroplex-config
+  namespace: neural-swarm
+  labels:
+    app.kubernetes.io/name: neuroplex
+    app.kubernetes.io/component: config
+data:
+  config.toml: |
+    [node]
+    node_type = "coordinator"
+    cluster_id = "k8s-swarm-cluster"
+    bind_address = "0.0.0.0:8080"
+    
+    [memory]
+    max_size = 1073741824  # 1GB
+    compression = "Lz4"
+    replication_factor = 3
+    
+    [consensus]
+    election_timeout = 5000
+    heartbeat_interval = 1000
+    log_compaction_threshold = 10000
+    
+    [sync]
+    gossip_interval = 100
+    gossip_fanout = 3
+    delta_sync_batch_size = 1000
+    
+    [logging]
+    level = "info"
+    format = "json"
+    
+    [metrics]
+    enabled = true
+    bind_address = "0.0.0.0:9090"
+    
+    [health]
+    bind_address = "0.0.0.0:8081"
+    
+  edge-config.toml: |
+    [node]
+    node_type = "worker"
+    cluster_id = "k8s-edge-cluster"
+    bind_address = "0.0.0.0:8080"
+    
+    [memory]
+    max_size = 134217728  # 128MB
+    compression = "Zstd"
+    replication_factor = 1
+    
+    [consensus]
+    election_timeout = 10000
+    heartbeat_interval = 2000
+    log_compaction_threshold = 1000
+    
+    [sync]
+    gossip_interval = 500
+    gossip_fanout = 2
+    delta_sync_batch_size = 100
+    
+    [logging]
+    level = "warn"
+    format = "compact"
+    
+    [metrics]
+    enabled = false
+    
+    [health]
+    bind_address = "0.0.0.0:8081"
+    
+    [edge]
+    power_aware = true
+    cpu_limit = 0.5
+    memory_limit = 128
+    network_optimization = true

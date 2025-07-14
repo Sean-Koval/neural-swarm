@@ -1,0 +1,77 @@
+[package]
+name = "neural-swarm-hybrid-deployment"
+version = "0.1.0"
+edition = "2021"
+description = "Hybrid deployment framework for neural-swarm coordination system"
+authors = ["Neural Swarm Team <neural-swarm@example.com>"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/neural-swarm/neural-swarm"
+readme = "README.md"
+
+[dependencies]
+# Core dependencies
+tokio = { version = "1.0", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+thiserror = "1.0"
+uuid = { version = "1.6", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+# Async and concurrency
+futures = "0.3"
+async-trait = "0.1"
+tokio-util = "0.7"
+
+# Logging and tracing
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+# Configuration
+config = "0.13"
+clap = { version = "4.0", features = ["derive"] }
+
+# HTTP client for deployment APIs
+reqwest = { version = "0.11", features = ["json"] }
+
+# Metrics and monitoring
+metrics = "0.22"
+prometheus = "0.13"
+
+# Docker client
+bollard = "0.14"
+
+# Kubernetes client
+kube = "0.87"
+k8s-openapi = { version = "0.20", features = ["v1_28"] }
+
+# System information
+sysinfo = "0.29"
+
+# Neural-swarm core
+neuroplex = { path = "../.." }
+
+[dev-dependencies]
+tokio-test = "0.4"
+tempfile = "3.8"
+wiremock = "0.5"
+
+[features]
+default = ["container", "kubernetes", "wasm"]
+container = ["bollard"]
+kubernetes = ["kube", "k8s-openapi"]
+wasm = []
+metrics = ["prometheus"]
+testing = []
+
+[[bin]]
+name = "neural-swarm-deployer"
+path = "src/bin/deployer.rs"
+
+[[bin]]
+name = "deployment-controller"
+path = "src/bin/controller.rs"
+
+[lib]
+name = "neural_swarm_hybrid_deployment"
+path = "src/lib.rs"

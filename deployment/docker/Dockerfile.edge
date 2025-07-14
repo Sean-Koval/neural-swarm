@@ -1,0 +1,49 @@
+# Edge-optimized Dockerfile for resource-constrained environments
+# Minimal footprint with aggressive size optimization
+
+# Build stage with musl for static linking
+FROM rust:1.74-alpine as builder
+
+# Install build dependencies
+RUN apk add --no-cache \
+    musl-dev \
+    pkgconfig \
+    openssl-dev \
+    openssl-libs-static \
+    build-base
+
+# Set working directory
+WORKDIR /usr/src/neural-swarm
+
+# Copy source files
+COPY . .
+
+# Create statically linked binary
+RUN RUSTFLAGS="-C target-cpu=native -C opt-level=3 -C lto=fat" \
+    cargo build --release --target x86_64-unknown-linux-musl --bin neuroplex-node
+
+# Strip binary to reduce size
+RUN strip target/x86_64-unknown-linux-musl/release/neuroplex-node
+
+# Runtime stage with minimal base
+FROM scratch
+
+# Copy CA certificates
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+
+# Copy binary
+COPY --from=builder /usr/src/neural-swarm/target/x86_64-unknown-linux-musl/release/neuroplex-node /neuroplex-node
+
+# Copy minimal config
+COPY --from=builder /usr/src/neural-swarm/config/edge.toml /config.toml
+
+# Expose minimal ports
+EXPOSE 8080
+
+# Set environment variables
+ENV RUST_LOG=warn
+ENV NEUROPLEX_EDGE_MODE=true
+ENV NEUROPLEX_CONFIG=/config.toml
+
+# Default command
+CMD ["/neuroplex-node", "--config", "/config.toml", "--edge-mode"]
